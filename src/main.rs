@@ -4,12 +4,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use bytemuck::{Pod, Zeroable};
-use egui_wgpu::wgpu;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::Key;
 use winit::window::{Window, WindowBuilder};
 
 use molweaver::{
@@ -288,8 +287,8 @@ impl UiState {
     }
 }
 
-struct RenderState {
-    surface: wgpu::Surface,
+struct RenderState<'a> {
+    surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -345,8 +344,8 @@ impl Texture {
     }
 }
 
-impl RenderState {
-    async fn new(window: &Window) -> Self {
+impl<'a> RenderState<'a> {
+    async fn new(window: &'a Window) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
         let surface = unsafe { instance.create_surface(window) }.expect("create surface");
@@ -362,8 +361,8 @@ impl RenderState {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("device"),
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
                 },
                 None,
             )
@@ -379,6 +378,7 @@ impl RenderState {
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
+            desired_maximum_frame_latency: 2,
             view_formats: vec![],
         };
         surface.configure(&device, &config);
@@ -973,17 +973,19 @@ impl RenderState {
                             b: 0.08,
                             a: 1.0,
                         }),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
                 }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
 
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -1035,10 +1037,12 @@ impl RenderState {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
             egui_renderer.render(&mut egui_pass, paint_jobs, screen_descriptor);
         }
@@ -1148,7 +1152,7 @@ fn main() {
                     WindowEvent::CloseRequested => target.exit(),
                     WindowEvent::Resized(size) => render_state.resize(size),
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        render_state.resize(*new_inner_size)
+                        render_state.resize(*new_inner_size);
                     }
                     WindowEvent::ModifiersChanged(modifiers) => {
                         ui_state.modifiers = modifiers.state();
@@ -1158,31 +1162,6 @@ fn main() {
                             if handle_shortcuts(event.logical_key.as_ref(), &ui_state.modifiers) {
                                 if let Some(molecule_ref) = molecule.as_mut() {
                                     match event.logical_key.as_ref() {
-                                        Key::Named(NamedKey::Z) => {
-                                            if ui_state.modifiers.shift_key() {
-                                                redo_command(
-                                                    &mut history,
-                                                    molecule_ref,
-                                                    &mut render_state,
-                                                    &mut ui_state,
-                                                );
-                                            } else {
-                                                undo_command(
-                                                    &mut history,
-                                                    molecule_ref,
-                                                    &mut render_state,
-                                                    &mut ui_state,
-                                                );
-                                            }
-                                        }
-                                        Key::Named(NamedKey::Y) => {
-                                            redo_command(
-                                                &mut history,
-                                                molecule_ref,
-                                                &mut render_state,
-                                                &mut ui_state,
-                                            );
-                                        }
                                         Key::Character(key) if key.eq_ignore_ascii_case("z") => {
                                             if ui_state.modifiers.shift_key() {
                                                 redo_command(
@@ -1258,7 +1237,10 @@ fn main() {
             Event::AboutToWait => {
                 window.request_redraw();
             }
-            Event::RedrawRequested(_) => {
+            Event::WindowEvent {
+                event: WindowEvent::RedrawRequested,
+                window_id,
+            } if window_id == window.id() => {
                 if let Ok(result) = rx.try_recv() {
                     match result {
                         Ok(loaded) => {
@@ -1283,17 +1265,22 @@ fn main() {
                 }
                 ui_state.update_fps();
 
+                let atom_count = molecule.as_ref().map(|mol| mol.atom_count()).unwrap_or(0);
+                let bond_count = molecule
+                    .as_ref()
+                    .map(|mol| mol.bonds().count())
+                    .unwrap_or(0);
+                let atom_ids = molecule
+                    .as_ref()
+                    .map(|mol| mol.atom_ids())
+                    .unwrap_or_default();
+                let mut pending_representation = None;
+
                 let raw_input = egui_state.take_egui_input(&window);
                 let output = egui_ctx.run(raw_input, |ctx| {
                     egui::Window::new("MolWeaver Status")
                         .default_pos(egui::pos2(10.0, 10.0))
                         .show(ctx, |ui| {
-                            let atom_count =
-                                molecule.as_ref().map(|mol| mol.atom_count()).unwrap_or(0);
-                            let bond_count = molecule
-                                .as_ref()
-                                .map(|mol| mol.bonds().count())
-                                .unwrap_or(0);
                             ui.label(format!("Atoms: {atom_count}"));
                             ui.label(format!("Bonds: {bond_count}"));
                             ui.label(format!("FPS: {:.1}", ui_state.fps));
@@ -1323,10 +1310,7 @@ fn main() {
                                 );
                             });
                             if representation != ui_state.representation {
-                                ui_state.representation = representation;
-                                if let Some(molecule_ref) = molecule.as_ref() {
-                                    render_state.set_representation(representation, molecule_ref);
-                                }
+                                pending_representation = Some(representation);
                             }
 
                             ui.separator();
@@ -1408,10 +1392,6 @@ fn main() {
                             ui.separator();
                             ui.label("Bond");
                             let mut bond_target = ui_state.bond_target;
-                            let atom_ids = molecule
-                                .as_ref()
-                                .map(|mol| mol.atom_ids())
-                                .unwrap_or_default();
                             egui::ComboBox::from_label("Bond target")
                                 .selected_text(
                                     bond_target.map_or("None".into(), |id| id.value().to_string()),
@@ -1557,6 +1537,12 @@ fn main() {
                         });
                 });
                 egui_state.handle_platform_output(&window, &egui_ctx, output.platform_output);
+                if let Some(representation) = pending_representation {
+                    ui_state.representation = representation;
+                    if let Some(molecule_ref) = molecule.as_ref() {
+                        render_state.set_representation(representation, molecule_ref);
+                    }
+                }
                 let paint_jobs = egui_ctx.tessellate(output.shapes, output.pixels_per_point);
                 let screen_descriptor = egui_wgpu::ScreenDescriptor {
                     size_in_pixels: [render_state.config.width, render_state.config.height],
@@ -1598,10 +1584,7 @@ fn handle_shortcuts(key: Option<&Key>, modifiers: &winit::keyboard::ModifiersSta
     if !ctrl_or_cmd {
         return false;
     }
-    matches!(
-        key,
-        Some(Key::Named(NamedKey::Z)) | Some(Key::Named(NamedKey::Y)) | Some(Key::Character(_))
-    )
+    matches!(key, Some(Key::Character(key)) if key.eq_ignore_ascii_case("z") || key.eq_ignore_ascii_case("y"))
 }
 
 fn handle_click(
