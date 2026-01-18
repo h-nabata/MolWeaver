@@ -74,7 +74,7 @@ sudo apt install build-essential pkg-config libx11-dev libxcb1-dev
 ### Cloning the Repository
 
 ```bash
-git clone https://github.com/<your-account>/MolWeaver.git
+git clone https://github.com/h-nabata/MolWeaver.git
 cd MolWeaver
 ```
 
