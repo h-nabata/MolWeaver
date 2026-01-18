@@ -348,7 +348,7 @@ impl<'a> RenderState<'a> {
     async fn new(window: &'a Window) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
-        let surface = unsafe { instance.create_surface(window) }.expect("create surface");
+        let surface = instance.create_surface(window).expect("create surface");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1129,6 +1129,8 @@ fn main() {
         .expect("window");
 
     let mut render_state = pollster::block_on(RenderState::new(&window));
+    // Keep egui_ctx in main scope so it lives for the entire event loop.
+    let egui_ctx = egui::Context::default();
     let viewport_id = egui_ctx.viewport_id();
     let mut egui_state = egui_winit::State::new(
         egui_ctx.clone(),
@@ -1137,7 +1139,6 @@ fn main() {
         Some(window.scale_factor() as f32),
         None,
     );
-    let egui_ctx = egui::Context::default();
     let mut egui_renderer =
         egui_wgpu::Renderer::new(&render_state.device, render_state.config.format, None, 1);
 
