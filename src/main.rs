@@ -863,17 +863,23 @@ impl<'a> RenderState<'a> {
     fn update_selection(&mut self, previous: Option<AtomId>, next: Option<AtomId>) {
         if let Some(prev) = previous {
             if let Some(index) = self.atom_lookup.get(&prev).copied() {
-                if let Some(data) = self.atom_instance_data.get_mut(index) {
+                let updated = self.atom_instance_data.get_mut(index).map(|data| {
                     data.flags &= !1;
-                    self.write_atom_instance(index, *data);
+                    *data
+                });
+                if let Some(data) = updated {
+                    self.write_atom_instance(index, data);
                 }
             }
         }
         if let Some(next) = next {
             if let Some(index) = self.atom_lookup.get(&next).copied() {
-                if let Some(data) = self.atom_instance_data.get_mut(index) {
+                let updated = self.atom_instance_data.get_mut(index).map(|data| {
                     data.flags |= 1;
-                    self.write_atom_instance(index, *data);
+                    *data
+                });
+                if let Some(data) = updated {
+                    self.write_atom_instance(index, data);
                 }
             }
         }
@@ -1123,7 +1129,14 @@ fn main() {
         .expect("window");
 
     let mut render_state = pollster::block_on(RenderState::new(&window));
-    let mut egui_state = egui_winit::State::new(&event_loop);
+    let viewport_id = egui_ctx.viewport_id();
+    let mut egui_state = egui_winit::State::new(
+        egui_ctx.clone(),
+        viewport_id,
+        &window,
+        Some(window.scale_factor() as f32),
+        None,
+    );
     let egui_ctx = egui::Context::default();
     let mut egui_renderer =
         egui_wgpu::Renderer::new(&render_state.device, render_state.config.format, None, 1);
@@ -1145,23 +1158,27 @@ fn main() {
     event_loop
         .run(move |event, target| match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => {
-                if egui_state.on_event(&egui_ctx, &event).consumed {
+                if egui_state.on_window_event(&window, &event).consumed {
                     return;
                 }
                 match event {
                     WindowEvent::CloseRequested => target.exit(),
                     WindowEvent::Resized(size) => render_state.resize(size),
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        render_state.resize(*new_inner_size);
+                    WindowEvent::ScaleFactorChanged {
+                        inner_size_writer, ..
+                    } => {
+                        let new_size = window.inner_size();
+                        inner_size_writer.request_inner_size(new_size);
+                        render_state.resize(new_size);
                     }
                     WindowEvent::ModifiersChanged(modifiers) => {
                         ui_state.modifiers = modifiers.state();
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
                         if event.state == ElementState::Pressed {
-                            if handle_shortcuts(event.logical_key.as_ref(), &ui_state.modifiers) {
+                            if handle_shortcuts(&event.logical_key, &ui_state.modifiers) {
                                 if let Some(molecule_ref) = molecule.as_mut() {
-                                    match event.logical_key.as_ref() {
+                                    match &event.logical_key {
                                         Key::Character(key) if key.eq_ignore_ascii_case("z") => {
                                             if ui_state.modifiers.shift_key() {
                                                 redo_command(
@@ -1536,7 +1553,7 @@ fn main() {
                             }
                         });
                 });
-                egui_state.handle_platform_output(&window, &egui_ctx, output.platform_output);
+                egui_state.handle_platform_output(&window, output.platform_output);
                 if let Some(representation) = pending_representation {
                     ui_state.representation = representation;
                     if let Some(molecule_ref) = molecule.as_ref() {
@@ -1579,12 +1596,15 @@ fn main() {
         .expect("event loop run");
 }
 
-fn handle_shortcuts(key: Option<&Key>, modifiers: &winit::keyboard::ModifiersState) -> bool {
+fn handle_shortcuts(key: &Key, modifiers: &winit::keyboard::ModifiersState) -> bool {
     let ctrl_or_cmd = modifiers.control_key() || modifiers.super_key();
     if !ctrl_or_cmd {
         return false;
     }
-    matches!(key, Some(Key::Character(key)) if key.eq_ignore_ascii_case("z") || key.eq_ignore_ascii_case("y"))
+    matches!(
+        key,
+        Key::Character(key) if key.eq_ignore_ascii_case("z") || key.eq_ignore_ascii_case("y")
+    )
 }
 
 fn handle_click(
