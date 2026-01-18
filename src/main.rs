@@ -1122,25 +1122,6 @@ fn create_cylinder_mesh(segments: u32) -> (Vec<Vertex>, Vec<u32>) {
 
 fn main() {
     let event_loop = EventLoop::new().expect("event loop");
-    let window = WindowBuilder::new()
-        .with_title("MolWeaver")
-        .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
-        .build(&event_loop)
-        .expect("window");
-
-    let mut render_state = pollster::block_on(RenderState::new(&window));
-    // Keep egui_ctx in main scope so it lives for the entire event loop.
-    let egui_ctx = egui::Context::default();
-    let viewport_id = egui_ctx.viewport_id();
-    let mut egui_state = egui_winit::State::new(
-        egui_ctx.clone(),
-        viewport_id,
-        &window,
-        Some(window.scale_factor() as f32),
-        None,
-    );
-    let mut egui_renderer =
-        egui_wgpu::Renderer::new(&render_state.device, render_state.config.format, None, 1);
 
     let (tx, rx) = mpsc::channel::<Result<Molecule, String>>();
     let file_name = SAMPLE_PATH.to_string();
@@ -1154,19 +1135,83 @@ fn main() {
     let mut molecule: Option<Molecule> = None;
     let mut ui_state = UiState::new();
     let mut history = CommandHistory::new(HISTORY_CAPACITY);
+    let mut window: Option<Window> = None;
+    let mut render_state: Option<RenderState> = None;
+    let mut egui_state: Option<egui_winit::State> = None;
+    let mut egui_ctx: Option<egui::Context> = None;
+    let mut egui_renderer: Option<egui_wgpu::Renderer> = None;
 
     event_loop.set_control_flow(ControlFlow::Poll);
     event_loop
         .run(move |event, target| match event {
-            Event::WindowEvent { event, window_id } if window_id == window.id() => {
-                if egui_state.on_window_event(&window, &event).consumed {
+
+            // Create window/state on Event::Resumed to avoid moving a borrowed window into the loop.
+            Event::Resumed => {
+                if window.is_some() {
+                    return;
+                }
+                let created_window = WindowBuilder::new()
+                    .with_title("MolWeaver")
+                    .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
+                    .build(target)
+                    .expect("window");
+                let mut created_render_state =
+                    pollster::block_on(RenderState::new(&created_window));
+                let created_egui_ctx = egui::Context::default();
+                let viewport_id = created_egui_ctx.viewport_id();
+                let created_egui_state = egui_winit::State::new(
+                    created_egui_ctx.clone(),
+                    viewport_id,
+                    &created_window,
+                    Some(created_window.scale_factor() as f32),
+                    None,
+                );
+                let created_egui_renderer = egui_wgpu::Renderer::new(
+                    &created_render_state.device,
+                    created_render_state.config.format,
+                    None,
+                    1,
+                );
+                created_render_state.update_camera(
+                    &ui_state.camera,
+                    created_render_state.size.width as f32
+                        / created_render_state.size.height.max(1) as f32,
+                );
+                render_state = Some(created_render_state);
+                egui_ctx = Some(created_egui_ctx);
+                egui_state = Some(created_egui_state);
+                egui_renderer = Some(created_egui_renderer);
+                window = Some(created_window);
+            }
+            Event::WindowEvent { event, window_id } => {
+                let (window, render_state, egui_state, egui_ctx, egui_renderer) = match (
+                    window.as_ref(),
+                    render_state.as_mut(),
+                    egui_state.as_mut(),
+                    egui_ctx.as_ref(),
+                    egui_renderer.as_mut(),
+                ) {
+                    (
+                        Some(window),
+                        Some(render_state),
+                        Some(egui_state),
+                        Some(egui_ctx),
+                        Some(egui_renderer),
+                    ) => (window, render_state, egui_state, egui_ctx, egui_renderer),
+                    _ => return,
+                };
+                if window_id != window.id() {
+                    return;
+                }
+                if egui_state.on_window_event(window, &event).consumed {
                     return;
                 }
                 match event {
                     WindowEvent::CloseRequested => target.exit(),
                     WindowEvent::Resized(size) => render_state.resize(size),
                     WindowEvent::ScaleFactorChanged {
-                        inner_size_writer, ..
+                        mut inner_size_writer,
+                        ..
                     } => {
                         let new_size = window.inner_size();
                         inner_size_writer.request_inner_size(new_size);
