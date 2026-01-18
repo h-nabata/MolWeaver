@@ -2,20 +2,129 @@
 
 Molecular modeling MVP vertical slice using **winit**, **wgpu**, and **egui**.
 
-## Run
+## Running MolWeaver Locally
 
+This section describes how to build and run **MolWeaver** on a local desktop environment.  
+MolWeaver is a native GUI application written in Rust and based on **winit + wgpu + egui**.  
+No external runtime (e.g. Python, JVM) is required.
+
+---
+
+### Prerequisites
+
+#### Required
+- 64-bit operating system (Windows, macOS, or Linux)
+- A working GPU driver
+  - wgpu uses **Vulkan (Linux/Windows)**, **DirectX 12 (Windows)**, or **Metal (macOS)**
+- Rust toolchain (via `rustup`)
+
+#### Optional
+- Internet access (required only if dependencies are not vendored)
+
+---
+
+### Installing Rust
+
+Rust is installed via **rustup**.
+
+**Linux / macOS**
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+**Windows (PowerShell)**
+```powershell
+winget install Rustlang.Rustup
+```
+
+After installation, verify:
+```bash
+rustc --version
+cargo --version
+```
+
+---
+
+### OS-Specific Notes
+
+#### Windows
+- Windows 10 or later (64-bit)
+- Updated GPU driver (NVIDIA / AMD / Intel)
+- Visual Studio Build Tools (C++ build tools)
+  - Usually prompted automatically by `rustup`
+
+#### macOS
+- macOS 12 or later recommended
+- Xcode Command Line Tools:
+```bash
+xcode-select --install
+```
+- Apple Silicon and Intel are both supported
+
+#### Linux
+- X11 or Wayland environment
+- GPU driver (Mesa or vendor driver)
+- Required packages (Ubuntu example):
+```bash
+sudo apt install build-essential pkg-config libx11-dev libxcb1-dev
+```
+
+---
+
+### Cloning the Repository
+
+```bash
+git clone https://github.com/<your-account>/MolWeaver.git
+cd MolWeaver
+```
+
+If needed, switch branches:
+```bash
+git checkout main
+```
+
+---
+
+### Building and Running
+
+#### Basic launch
 ```bash
 cargo run
 ```
 
-The MVP loads a fixed sample XYZ file located at `assets/sample.xyz` on startup.
-Edit or replace this file to try different molecules.
+On the first build, compilation may take several minutes due to shader compilation and GPU backend setup.
 
-## Controls
+#### Running with an input file
+If CLI arguments are enabled:
+```bash
+cargo run -- path/to/sample.xyz
+```
 
-- **Orbit**: Left mouse button drag
-- **Zoom**: Mouse wheel
-- **Pick**: Left click to select an atom (highlights)
+or:
+```bash
+cargo run -- path/to/sample.pdb
+```
+
+If MolWeaver is configured to auto-load a sample file (e.g. `assets/sample.xyz`), no arguments are required.
+
+---
+
+### Controls (Default)
+
+Typical controls include:
+- **Left mouse drag**: rotate camera
+- **Mouse wheel**: zoom
+- **Click**: select atom
+- **Keyboard**
+  - `Ctrl/Cmd + Z`: Undo
+  - `Ctrl/Cmd + Shift + Z` or `Y`: Redo
+
+An **egui overlay** may display debug information such as:
+- atom count
+- selected atom ID
+- frame time / FPS
+
+---
 
 ## Editing
 
