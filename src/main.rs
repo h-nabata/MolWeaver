@@ -1230,14 +1230,14 @@ fn main() {
                                                 redo_command(
                                                     &mut history,
                                                     molecule_ref,
-                                                    &mut render_state,
+                                                    render_state,
                                                     &mut ui_state,
                                                 );
                                             } else {
                                                 undo_command(
                                                     &mut history,
                                                     molecule_ref,
-                                                    &mut render_state,
+                                                    render_state,
                                                     &mut ui_state,
                                                 );
                                             }
@@ -1246,7 +1246,7 @@ fn main() {
                                             redo_command(
                                                 &mut history,
                                                 molecule_ref,
-                                                &mut render_state,
+                                                render_state,
                                                 &mut ui_state,
                                             );
                                         }
@@ -1273,7 +1273,7 @@ fn main() {
                                             );
                                             handle_click(
                                                 picked,
-                                                &mut render_state,
+                                                render_state,
                                                 &mut ui_state,
                                                 molecule.as_mut(),
                                                 &mut history,
@@ -1298,12 +1298,33 @@ fn main() {
                 }
             }
             Event::AboutToWait => {
-                window.request_redraw();
+                if let Some(window) = window.as_ref() {
+                    window.request_redraw();
+                }
             }
             Event::WindowEvent {
                 event: WindowEvent::RedrawRequested,
                 window_id,
-            } if window_id == window.id() => {
+            } => {
+                let (window, render_state, egui_state, egui_ctx, egui_renderer) = match (
+                    window.as_ref(),
+                    render_state.as_mut(),
+                    egui_state.as_mut(),
+                    egui_ctx.as_ref(),
+                    egui_renderer.as_mut(),
+                ) {
+                    (
+                        Some(window),
+                        Some(render_state),
+                        Some(egui_state),
+                        Some(egui_ctx),
+                        Some(egui_renderer),
+                    ) => (window, render_state, egui_state, egui_ctx, egui_renderer),
+                    _ => return,
+                };
+                if window_id != window.id() {
+                    return;
+                }
                 if let Ok(result) = rx.try_recv() {
                     match result {
                         Ok(loaded) => {
@@ -1339,7 +1360,7 @@ fn main() {
                     .unwrap_or_default();
                 let mut pending_representation = None;
 
-                let raw_input = egui_state.take_egui_input(&window);
+                let raw_input = egui_state.take_egui_input(window);
                 let output = egui_ctx.run(raw_input, |ctx| {
                     egui::Window::new("MolWeaver Status")
                         .default_pos(egui::pos2(10.0, 10.0))
@@ -1398,7 +1419,7 @@ fn main() {
                                         undo_command(
                                             &mut history,
                                             molecule_ref,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1406,7 +1427,7 @@ fn main() {
                                         redo_command(
                                             &mut history,
                                             molecule_ref,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1446,7 +1467,7 @@ fn main() {
                                         command,
                                         molecule_ref,
                                         &mut history,
-                                        &mut render_state,
+                                        render_state,
                                         &mut ui_state,
                                     );
                                 }
@@ -1496,7 +1517,7 @@ fn main() {
                                             command,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1510,7 +1531,7 @@ fn main() {
                                                 command,
                                                 molecule_ref,
                                                 &mut history,
-                                                &mut render_state,
+                                                render_state,
                                                 &mut ui_state,
                                             );
                                         } else {
@@ -1534,7 +1555,7 @@ fn main() {
                                             Vec3::X * step,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1544,7 +1565,7 @@ fn main() {
                                             -Vec3::X * step,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1554,7 +1575,7 @@ fn main() {
                                             Vec3::Y * step,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1564,7 +1585,7 @@ fn main() {
                                             -Vec3::Y * step,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1574,7 +1595,7 @@ fn main() {
                                             Vec3::Z * step,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1584,7 +1605,7 @@ fn main() {
                                             -Vec3::Z * step,
                                             molecule_ref,
                                             &mut history,
-                                            &mut render_state,
+                                            render_state,
                                             &mut ui_state,
                                         );
                                     }
@@ -1598,8 +1619,8 @@ fn main() {
                                 ui.label(format!("Status: {}", ui_state.status_message));
                             }
                         });
-                });
-                egui_state.handle_platform_output(&window, output.platform_output);
+                })
+                egui_state.handle_platform_output(window, output.platform_output);
                 if let Some(representation) = pending_representation {
                     ui_state.representation = representation;
                     if let Some(molecule_ref) = molecule.as_ref() {
@@ -1622,7 +1643,7 @@ fn main() {
                 }
 
                 let render_result =
-                    render_state.render(&mut egui_renderer, &paint_jobs, &screen_descriptor);
+                    render_state.render(egui_renderer, &paint_jobs, &screen_descriptor);
                 match render_result {
                     Ok(()) => {}
                     Err(wgpu::SurfaceError::Lost) => render_state.resize(render_state.size),
