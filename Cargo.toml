@@ -1,14 +1,15 @@
 [package]
 name = "molweaver"
 version = "0.1.0"
-edition = "2021"
+edition = "2026"
 
 [dependencies]
-bytemuck = { version = "1.14", features = ["derive"] }
-egui = "0.27"
-egui-wgpu = "0.27"
-egui-winit = "0.27"
-glam = "0.27"
-pollster = "0.3"
-wgpu = "0.19"
 winit = "0.29"
+wgpu = "0.19"
+egui = "0.27"
+egui-winit = "0.27"
+egui-wgpu = { version = "0.27", features = ["winit"] }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.3"
+log = "0.4"
+glam = "0.28"
